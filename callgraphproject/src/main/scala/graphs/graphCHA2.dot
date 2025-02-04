@@ -1,0 +1,4 @@
+digraph CallGraph {
+  "makeSound" -> "println";
+  "main" -> "List";
+}

@@ -1,0 +1,6 @@
+digraph CallGraph {
+  "main" -> "Dog.<init>";
+  "main" -> "Robot.<init>";
+  "main" -> "Cat.<init>";
+  "main" -> "makeSound";
+}

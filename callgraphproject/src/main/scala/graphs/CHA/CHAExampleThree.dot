@@ -1,0 +1,26 @@
+digraph CallGraph {
+  node [shape=box];
+  "Dog.<init>()" [style=filled, fillcolor=white];
+  "Robot.makeSound()" [style=filled, fillcolor=red];
+  "Unreachable.MethodTest2()" [style=filled, fillcolor=red];
+  "Unreachable.MethodTest3()" [style=filled, fillcolor=red];
+  "Akita.makeSound()" [style=filled, fillcolor=white];
+  "Unreachable.MethodTest1()" [style=filled, fillcolor=red];
+  "Cat.makeSound()" [style=filled, fillcolor=white];
+  "Animal.makeSound()" [style=filled, fillcolor=white];
+  "Robot.println(\"Beep!\")" [style=filled, fillcolor=red];
+  "Dog.makeSound()" [style=filled, fillcolor=white];
+  "Unreachable.println(\"Testing\")" [style=filled, fillcolor=red];
+  "Unreachable.MethodTest3()" -> "Unreachable.println(\"Testing\")";
+  "Dog.makeSound()" -> "Dog.println(\"Woof!\")";
+  "ExampleThree.main()" -> "Dog.<init>()";
+  "Unreachable.MethodTest2()" -> "Unreachable.MethodTest3()";
+  "Cat.makeSound()" -> "Cat.println(\"Meow!\")";
+  "Akita.makeSound()" -> "Akita.println(\"Hachi!\")";
+  "Unreachable.MethodTest1()" -> "Unreachable.MethodTest2()";
+  "Robot.makeSound()" -> "Robot.println(\"Beep!\")";
+  "ExampleThree.main()" -> "Dog.makeSound()";
+  "ExampleThree.main()" -> "Cat.makeSound()";
+  "ExampleThree.main()" -> "Akita.makeSound()";
+  "ExampleThree.main()" -> "Animal.makeSound()";
+}

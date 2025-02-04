@@ -1,0 +1,7 @@
+digraph CallGraph {
+  "main" -> "+=";
+  "main" -> "makeCollection";
+  "makeCollection" -> "HashSet.<init>";
+  "makeCollection" -> "toBuffer";
+  "makeCollection" -> "ListBuffer";
+}

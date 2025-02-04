@@ -1,0 +1,7 @@
+digraph CallGraph {
+  "makeCollection" -> "HashSet[String]().toBuffer";
+  "main" -> "+=";
+  "main" -> "makeCollection";
+  "makeCollection" -> "args";
+  "makeCollection" -> "ListBuffer";
+}

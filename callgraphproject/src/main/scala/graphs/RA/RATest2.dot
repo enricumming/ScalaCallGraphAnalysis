@@ -1,0 +1,9 @@
+digraph CallGraph {
+  "main" -> "Dog.<init>";
+  "makeSound" -> "println(\"\"Meow!\"\")";
+  "main" -> "Robot.<init>";
+  "main" -> "Cat.<init>";
+  "makeSound" -> "println(\"\"Beep!\"\")";
+  "main" -> "makeSound";
+  "makeSound" -> "println(\"\"Woof!\"\")";
+}

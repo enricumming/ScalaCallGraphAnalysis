@@ -1,0 +1,8 @@
+digraph CallGraph {
+  "ExampleOne.main" -> "ExampleOne.functionA";
+  "ExampleOne.main" -> "ExampleOne.functionB";
+  "ExampleOne.functionA" -> "ExampleOne.functionC";
+  "ExampleOne.functionB" -> "ExampleOne.functionC";
+  "ExampleOne.functionB" -> "ExampleOne.functionD";
+  "ExampleOne.functionD" -> "ExampleOne.functionE";
+}

@@ -1,0 +1,9 @@
+digraph MethodCallGraph {
+  "makeCollection";
+  "main";
+  "ListBuffer";
+  "args";
+  "main" -> "makeCollection";
+  "main" -> "args";
+  "makeCollection" -> "ListBuffer";
+}

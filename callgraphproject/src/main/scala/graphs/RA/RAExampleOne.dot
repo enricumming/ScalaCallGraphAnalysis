@@ -1,0 +1,13 @@
+digraph CallGraph {
+  "functionD" -> "functionE";
+  "main" -> "functionA";
+  "functionB" -> "println(\"\"Function B\"\")";
+  "functionE" -> "println(\"\"Function E\"\")";
+  "functionB" -> "functionC";
+  "functionB" -> "functionD";
+  "main" -> "functionB";
+  "functionD" -> "println(\"\"Function D\"\")";
+  "functionC" -> "println(\"\"Function C\"\")";
+  "functionA" -> "functionC";
+  "functionA" -> "println(\"\"Function A\"\")";
+}

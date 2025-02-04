@@ -1,0 +1,18 @@
+digraph CallGraph {
+  node [shape=box];
+  "Dog.<init>()" [style=filled, fillcolor=white];
+  "Utils.logSound(String)" [style=filled, fillcolor=red];
+  "Utils.println(s\"Logging sound: $sound\")" [style=filled, fillcolor=red];
+  "MainApp.main()" [style=filled, fillcolor=white];
+  "Cat.makeSound()" [style=filled, fillcolor=white];
+  "Animal.makeSound()" [style=filled, fillcolor=white];
+  "Dog.makeSound()" [style=filled, fillcolor=white];
+  "MainApp.main()" -> "Cat.makeSound()";
+  "Dog.makeSound()" -> "Utils.logSound(\"Woof!\")";
+  "Cat.makeSound()" -> "Cat.println(s\"$name says: Meow!\")";
+  "MainApp.main()" -> "Animal.makeSound()";
+  "MainApp.main()" -> "Dog.makeSound()";
+  "MainApp.main()" -> "Dog.<init>()";
+  "Utils.logSound(String)" -> "Utils.println(s\"Logging sound: $sound\")";
+  "Dog.makeSound()" -> "Dog.println(s\"$name says: Woof!\")";
+}

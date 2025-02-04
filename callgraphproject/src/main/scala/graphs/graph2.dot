@@ -1,0 +1,5 @@
+digraph CallGraph {
+  "ExampleTwo.main" -> "ExampleTwo.makeCollection";
+  "ExampleTwo.main" -> "ExampleTwo.args";
+  "ExampleTwo.makeCollection" -> "ExampleTwo.ListBuffer";
+}
