@@ -73,7 +73,6 @@ object CHA {
     println(s"\nGrafo exportado a '$outputFilePath'")
 
     println(s"Los nodos encontrados son : $graphNodes")
-
   }
 
   /**
@@ -109,7 +108,6 @@ object CHA {
     tree.collect {
       case defn: Defn.Class =>
         val className = defn.name.value
-        //        println(s"La clase es: $className, y esta extiende a: ${defn.templ.inits}")
         defn.templ.inits.foreach { init =>
           val parentName = init.tpe.syntax
           // Se actualiza el mapa de la jerarquia de clases
@@ -469,7 +467,6 @@ def findCalleesFromGraphNodes(
           case _ =>
             ("", "")
         }
-
         if (calleeName.nonEmpty) {
           val argumentTypes = args.map(_.syntax).mkString(", ")
           val newNode = buildNodeName(context, calleeName, argumentTypes)
@@ -499,8 +496,6 @@ def findCalleesFromGraphNodes(
     }
     if (!graphNodes.contains(callee)) {
       graphNodes += callee
-      println(s"Verificando: GraphNodes contiene a $callee ? ${graphNodes.contains(callee)}") // VERIFICACIÓN EXTRA
-      println(s" GraphNodes : ${graphNodes}")
       pendingNodes.enqueue(callee)
       println(s"Agregando nodo: $callee a la cola de procesamiento.")
     }
@@ -551,7 +546,6 @@ def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String
 
     // Extraer los parámetros correctamente
     val paramValues = extractParameterValues(rawParams)
-    println(s"paramValues: $paramValues")
 
     val paramTypes = paramValues.map { value =>
       // Intentar obtener el tipo estático del argumento desde `variableTypes`

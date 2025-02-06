@@ -36,8 +36,8 @@ object RTA {
     val classHierarchy = Map[String, Set[String]]()
     val variableTypes = Map[String, String]()
     val methodImplementations = Map[String, Set[String]]()
-    val graphNodes = Set[String]()
-    val graphEdges = Set[(String, String)]()
+    val graphNodes = scala.collection.mutable.Set[String]()
+    val graphEdges = scala.collection.mutable.Set[(String, String)]()
     val unreachableNodes = Set[String]()
     val instantiatedTypes = Set[String]()
 
@@ -50,12 +50,11 @@ object RTA {
     println(s"Implementacion de metodos son: $methodImplementations")
     println(s" Tipos de las variables: $variableTypes")
 
-    println(s"El conjunto de NODOS ACTUAL ES : $graphNodes")
-
     // Buscar nuevos métodos llamados desde los nodos finales del grafo en todos los archivos
-    sourceTrees.foreach { source =>
-      findCalleesFromGraphNodes(graphNodes, graphEdges, source, variableTypes)
-    }
+    //CAMBIAR
+
+    findCalleesFromGraphNodes(graphNodes, graphEdges, sourceTrees, variableTypes)
+
 
     // Aplicar CHA para agregar nodos y arcos adicionales
     applyRTA(graphNodes, graphEdges, classHierarchy, methodImplementations, sourceTrees, variableTypes, instantiatedTypes)
@@ -216,11 +215,10 @@ object RTA {
         //Detecta llamadas de metodos de un objeto. Ej: dog.makeSound()
         // Agrega las llamadas encontradas como un nodo junto al objeto que hace el llamado. Luego, agrega un arco desde el nodo
         // caller al nodo encontrado.
-        case Term.Apply(Term.Select(Term.Name(valueName), Term.Name(methodName)), args) =>
+        case Term.Apply(Term.Select(obj, Term.Name(methodName)), args) =>
           //Obtiene el contexto u objeto que hace la llamada.
-          val contextType = variableTypes.getOrElse(valueName, valueName)
-          println(s" El contexto del metodo encontrado es : $contextType")
-          //          val methodWithType = s"$contextType.$methodName"
+          val contextType = resolveFullQualifiedName(obj, variableTypes)
+
           val methodWithType = if (args.nonEmpty) {
             s"$contextType.$methodName(${args.map(_.syntax).mkString(", ")})"
           } else {
@@ -257,13 +255,20 @@ object RTA {
           stats.foreach(stat => processNode(stat, caller))
 
         case Defn.Val(_, List(Pat.Var(Term.Name(varName))), typeOpt, init) =>
+
           val inferredType = typeOpt match {
+            case Term.Apply(Term.Name("List"), args) => s"List[${inferTypeFromArgs(args)}]"
+            case Term.Apply(Term.Name("Seq"), args)  => s"Seq[${inferTypeFromArgs(args)}]"
             case Some(Type.Name(typeName)) => typeName // Tipo explícito
             case None =>
               // Inferir tipo si es una inicialización con `new`
               init match {
                 case Term.New(initExpr) => initExpr.tpe.syntax
-                case _                  => "Unknown" // Si no se puede inferir
+                case Lit.String(_)      => "String"
+                case Lit.Int(_)         => "Int"
+                case Lit.Double(_)      => "Double"
+                case Lit.Boolean(_)     => "Boolean"
+                case _                  => "" // Si no se puede inferir
               }
           }
           println(s"Inferido 2: $varName -> $inferredType")
@@ -279,6 +284,41 @@ object RTA {
     tree.collect {
       case defn: Defn.Def if defn.name.value == "main" =>
         processNode(defn, "main")
+    }
+  }
+
+  /**
+   * Funcion aux
+   * @param args
+   * @return
+   */
+  def inferTypeFromArgs(args: List[Term]): String = {
+    args.headOption match {
+      case Some(Lit.String(_))  => "String"
+      case Some(Lit.Int(_))     => "Int"
+      case Some(Lit.Double(_))  => "Double"
+      case Some(Lit.Boolean(_)) => "Boolean"
+      case _                    => ""
+    }
+  }
+
+  /**
+   *
+   * @param obj
+   * @param variableTypes
+   * @return
+   */
+  def resolveFullQualifiedName(obj: Term, variableTypes: Map[String, String]): String = {
+    obj match {
+      case Term.Select(qualifier, Term.Name(name)) =>
+        name
+      case Term.Name(name) =>
+        variableTypes.getOrElse(name, {
+          if (name.matches("\".*\"")) "String" // Si es una cadena literal
+          else name
+        })
+      case _ =>
+        ""
     }
   }
 
@@ -323,7 +363,7 @@ object RTA {
 
                 //  Revisar el cuerpo del método recién agregado
                 sourceTrees.foreach { tree =>
-                  findCalleesFromGraphNodes(Set(subtypeMethod), newEdges, tree, variableTypes)
+                  findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
                 }
               }
             }
@@ -370,10 +410,9 @@ object RTA {
   def findCalleesFromGraphNodes(
                                  graphNodes: Set[String],
                                  graphEdges: Set[(String, String)],
-                                 tree: Tree,
+                                 sourceTrees: List[Tree],
                                  variableTypes: Map[String, String]
                                ): Unit = {
-    val nodesToProcess = scala.collection.mutable.Set(graphNodes.toSeq: _*)
     val pendingNodes = scala.collection.mutable.Queue(graphNodes.toSeq: _*)
 
     while (pendingNodes.nonEmpty) {
@@ -381,32 +420,34 @@ object RTA {
       println(s"Procesando nodo: $currentNode")
 
       // Buscar definición del nodo en el AST
-      tree.collect {
-        case defn: Defn.Def =>
-          val enclosingClassOrTrait = findEnclosingClassOrTrait(defn, tree)
-          val paramTypes = defn.paramss.flatten.map(_.decltpe.map(_.syntax).getOrElse("_")).mkString(", ")
-          val expectedNode = buildNodeName(enclosingClassOrTrait, defn.name.value, paramTypes)
+      sourceTrees.foreach { tree =>
+        tree.collect {
+          case defn: Defn.Def =>
+            val enclosingClassOrTrait = findEnclosingClassOrTrait(defn, tree)
+            val paramTypes = defn.paramss.flatten.map(_.decltpe.map(_.syntax).getOrElse("_")).mkString(", ")
+            val expectedNode = buildNodeName(enclosingClassOrTrait, defn.name.value, paramTypes)
 
-          // Modificar el nodo actual para deducir tipos
-          val currentNodeModified = modifyNodeWithParameterTypes(currentNode, variableTypes)
-          println(s"Comparando nodo: $currentNodeModified con esperado: $expectedNode")
+            // Modificar el nodo actual para deducir tipos
+            val currentNodeModified = modifyNodeWithParameterTypes(currentNode, variableTypes)
+            println(s"Comparando nodo: $currentNodeModified con esperado: $expectedNode")
 
-          if (currentNodeModified == expectedNode) {
-            println(s"Revisando cuerpo de $currentNode para nuevos métodos.")
+            if (currentNodeModified == expectedNode) {
+              println(s"Revisando cuerpo de $currentNode para nuevos métodos.")
 
-            // **Agregar parámetros al mapeo variableTypes**
-            defn.paramss.flatten.foreach { param =>
-              (param.name, param.decltpe) match {
-                case (name: Name, Some(paramType)) =>
-                  variableTypes(name.value) = paramType.syntax
-                  println(s"Tipo variable inferido: ${name.value} -> ${paramType.syntax}")
-                case _ =>
+              // **Agregar parámetros al mapeo variableTypes**
+              defn.paramss.flatten.foreach { param =>
+                (param.name, param.decltpe) match {
+                  case (name: Name, Some(paramType)) =>
+                    variableTypes(name.value) = paramType.syntax
+                    println(s"Tipo variable inferido: ${name.value} -> ${paramType.syntax}")
+                  case _ =>
+                }
               }
-            }
 
-            // Recorrer el cuerpo del método y buscar métodos llamados
-            processMethodBody(defn.body, currentNode, enclosingClassOrTrait, graphNodes, graphEdges, pendingNodes, variableTypes)
-          }
+              // Recorrer el cuerpo del método y buscar métodos llamados
+              processMethodBody(defn.body, currentNode, enclosingClassOrTrait, graphNodes, graphEdges, pendingNodes, variableTypes)
+            }
+        }
       }
     }
     println(s"Análisis completo. Nodos: ${graphNodes.mkString(", ")}")
@@ -436,9 +477,12 @@ object RTA {
         val (calleeName, context) = fun match {
           case Term.Name(name) =>
             (name, enclosingClassOrTrait) // Método llamado dentro del mismo contexto
-          case Term.Select(Term.Name(obj), Term.Name(name)) =>
-            val dynamicType = variableTypes.getOrElse(obj, obj)
-            (name, dynamicType) // Método llamado desde otro objeto
+
+          // Método llamado desde otro objeto o paquete
+          case Term.Select(obj, Term.Name(name)) =>
+            val resolvedContext = resolveFullQualifiedName(obj, variableTypes) // Resolver nombre de paquete
+            (name, resolvedContext)
+
           case _ =>
             ("", "") // Caso no válido
         }
@@ -492,7 +536,7 @@ object RTA {
         case _ => node.children.flatMap(findEnclosing).headOption
       }
     }
-    findEnclosing(tree).getOrElse("Unknown")
+    findEnclosing(tree).getOrElse("")
   }
   /**
    *
@@ -513,10 +557,13 @@ object RTA {
 
   def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String]): String = {
     if (node.contains("(") && node.contains(")")) {
-      val paramValues = node.substring(
+      val rawParams = node.substring(
         node.indexOf("(") + 1,
         node.lastIndexOf(")")
-      ).split(",").map(_.trim)
+      )
+
+      // Extraer los parámetros correctamente
+      val paramValues = extractParameterValues(rawParams)
 
       val paramTypes = paramValues.map { value =>
         // Intentar obtener el tipo estático del argumento desde `variableTypes`
@@ -525,10 +572,11 @@ object RTA {
             case v if v.matches("\\d+")       => "Int"    // Números enteros
             case v if v.matches("\\d+\\.\\d+") => "Double" // Números decimales
             case v if v.matches("\".*\"")      => "String" // Cadenas de texto
+            case v if v.startsWith("s\"")      => "String" // Interpolaciones Scala (s"...")
             case _                             => ""    // Tipo genérico
           }
         })
-      }.mkString(", ")
+      }.filter(_ != "Unknown").mkString(", ") // Filtramos los valores "Unknown"
 
       val methodName = node.substring(0, node.indexOf("("))
       if (paramTypes.isEmpty) s"$methodName()" else s"$methodName($paramTypes)"
@@ -537,6 +585,21 @@ object RTA {
     }
   }
 
+  /**
+   * Funcion auxiliar para extraer los parametros del llamado de un metodo y retornar una lista con ellos
+   *
+   * @param params
+   * @return Lista con los parametros de una funcion
+   */
+  def extractParameterValues(params: String): List[String] = {
+    params.split(",").map(_.trim).toList
+  }
+
+  /**
+   *
+   * @param node
+   * @return
+   */
   def normalizeNodeName(node: String): String = {
     if (node.contains("(")) {
       val base = node.substring(0, node.indexOf("("))
