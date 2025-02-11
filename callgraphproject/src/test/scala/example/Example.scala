@@ -10,11 +10,11 @@ object Example {
     override def foo = "B.foo"
   }
 
-  class C extends B {
+  class C {
     def foo = "C.foo"
   }
 
-  class D {
+  class D extends B {
     def foo = "D.foo"
   }
 

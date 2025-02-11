@@ -183,7 +183,6 @@ object RTA {
     def processNode(currentNode: Tree, caller: String): Unit = {
 //      println(s"Procesando nodo con processNode: ${currentNode.structure}")
       currentNode match {
-
         // Detecta si el nodo es la definicion del metodo main y comienza a procesarlo como nodo inicial del grafo
         case defn: Defn.Def if defn.name.value == "main" =>
           //Busca el objeto,clase o trait que contiene el metodo main.
@@ -223,7 +222,6 @@ object RTA {
             s"$contextType.$methodName()"
           }
 
-          println(s"METODO ENCONTRADO CON CONTEXTO: $methodWithType")
           graphNodes += methodWithType
           addEdge(caller, methodWithType)
 
@@ -235,7 +233,6 @@ object RTA {
         // Se agrega al Set de nodos, y luego se agrega un arco correspondiente.
         case Term.Apply(Term.Name(methodName), args) =>
           val detailedMethodCall = s"$methodName(${args.map(_.syntax).mkString(", ")})"
-          println(s"METODO ENCONTRADO TEST: $detailedMethodCall")
           graphNodes += detailedMethodCall
           addEdge(caller, detailedMethodCall)
 
@@ -331,51 +328,6 @@ object RTA {
    * @param source: AST generado por Scalameta
    * @param instantiatedTypes: Conjunto que lleva el registro de tipos de variables inicializadas en el codigo
    */
-//  def applyRTA(
-//                graphNodes: Set[String],
-//                graphEdges: Set[(String, String)],
-//                classHierarchy: Map[String, Set[String]],
-//                methodImplementations: Map[String, Set[String]],
-//                sourceTrees: List[Tree],
-//                variableTypes: Map[String, String],
-//                instantiatedTypes: Set[String]
-//              ): Unit = {
-//    val newEdges = Set[(String, String)]()
-//
-//    graphEdges.foreach { case (caller, callee) =>
-//      callee.split("\\.") match {
-//        case Array(contextType, methodName) =>
-//          val normalizedMethodName = methodName.replaceAll("\\(.*\\)", "") // Elimina paréntesis
-//
-//          findAllSubtypes(contextType, classHierarchy)
-//            .filter(instantiatedTypes.contains) // Filtra para considerar solo instanciadas creadas
-//            .foreach { subtype =>
-//              println(s"Subtypes: $subtype")
-//            println(s"MethodName : $methodName")
-//            println(methodImplementations.getOrElse(methodName, Set()))
-//
-//            if (methodImplementations.getOrElse(normalizedMethodName, Set()).contains(subtype)) {
-//              val subtypeMethod = s"$subtype.$methodName"
-//              if (!graphEdges.contains((caller, subtypeMethod))) {
-//                graphNodes += subtypeMethod
-//                newEdges += (caller -> subtypeMethod)
-//                println(s"Agregando nodo para subtipo transitivo: $subtypeMethod")
-//
-//                //  Revisar el cuerpo del método recién agregado
-//                sourceTrees.foreach { tree =>
-//                  findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
-//                }
-//              }
-//            }
-//          }
-//        case _ =>
-//          println(s"Advertencia: formato inesperado en callee '$callee'")
-//      }
-//    }
-//    // Se actualiza el conjunto de arcos.
-//    graphEdges ++= newEdges
-//  }
-
 def applyRTA(
               graphNodes: Set[String],
               graphEdges: Set[(String, String)],
@@ -407,6 +359,9 @@ def applyRTA(
             graphNodes += targetMethod
             newEdges += (caller -> targetMethod)
             println(s" Agregando método de subtipo o supertipo con RTA: $caller -> $targetMethod")
+
+            //  Revisar el cuerpo del método recién agregado
+            findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
           }
         }
       case _ =>
@@ -651,7 +606,7 @@ def processMethodBody(
    * @param node
    * @return
    */
-    
+
 def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String]): String = {
   val cleanedNode = node.replaceAll("\\[.*?\\]", "") // Elimina restricciones de tipo como `[B]`
 
@@ -699,14 +654,6 @@ def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String
    * @param node
    * @return
    */
-//  def normalizeNodeName(node: String): String = {
-//    if (node.contains("(")) {
-//      val base = node.substring(0, node.indexOf("("))
-//      if (node.endsWith("()")) base else s"$base()"
-//    } else {
-//      node
-//    }
-//  }
 
 def normalizeNodeName(node: String): String = {
   //Si es solo para comparación, eliminamos los `[T]`, `[B]`, etc.
@@ -737,11 +684,9 @@ def normalizeNodeName(node: String): String = {
                            graphEdges: Set[(String, String)],
                            unreachableNodes: scala.collection.mutable.Set[String]
                          ): Unit = {
-
-    val normalizedGraphNodes = graphNodes.map(node => normalizeNodeName(node))
     // Normalizar los nombres de los nodos alcanzables
-//    val normalizedGraphNodes = graphNodes.map(normalizeNodeName)
-    println(s"Los nodos normalizados del grafo encontrados: $normalizedGraphNodes")
+    val normalizedGraphNodes = graphNodes.map(node => normalizeNodeName(node))
+
     // Recorrer el AST para encontrar todos los métodos definidos
     tree.collect {
       case defn: Defn.Def =>

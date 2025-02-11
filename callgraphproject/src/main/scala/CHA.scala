@@ -214,7 +214,6 @@ object CHA {
             s"$contextType.$methodName()"
           }
 
-          println(s"METODO ENCONTRADO CON CONTEXTO: $methodWithType")
           graphNodes += methodWithType
           addEdge(caller, methodWithType)
 
@@ -331,29 +330,32 @@ object CHA {
       callee.split("\\.") match {
         case Array(contextType, methodName) =>
           val normalizedMethodName = methodName.replaceAll("\\(.*\\)", "") // Elimina paréntesis
-          findAllSubtypes(contextType, classHierarchy).foreach { subtype =>
-            println(s"MethodName : $methodName")
-            println(methodImplementations.getOrElse(methodName, Set()))
 
-            if (methodImplementations.getOrElse(normalizedMethodName, Set()).contains(subtype)) {
-              val subtypeMethod = s"$subtype.$methodName"
-              println(s" SUBTYPE METHOD:  $subtypeMethod")
+          //  Buscar todas las subclases y superclases
+          val relatedClasses = findAllSubtypes(contextType, classHierarchy) ++ findAllSupertypes(contextType, classHierarchy)
+          println(s"La clase encontrada es: $relatedClasses")
+          //  Filtrar solo clases que implementan el método
+          val resolvedTargets = relatedClasses.filter { cls =>
+            methodImplementations.getOrElse(normalizedMethodName, Set()).contains(cls)
+          }
 
-              if (!graphEdges.contains((caller, subtypeMethod))) {
-                graphNodes += subtypeMethod
-                newEdges += (caller -> subtypeMethod)
-                println(s"Agregando nodo para subtipo transitivo: $subtypeMethod")
+          //  Agregar nodos y arcos para cada implementación válida
+          resolvedTargets.foreach { targetClass =>
+            val targetMethod = s"$targetClass.$methodName"
+            if (!graphEdges.contains((caller, targetMethod))) {
+              graphNodes += targetMethod
+              newEdges += (caller -> targetMethod)
+              println(s" Agregando método de subtipo o supertipo con RTA: $caller -> $targetMethod")
 
-                //  Revisar el cuerpo del método recién agregado
-                findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
-              }
+              //  Revisar el cuerpo del método recién agregado
+              findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
             }
           }
         case _ =>
           println(s"Advertencia: formato inesperado en callee '$callee'")
       }
     }
-    // Se actualiza el conjunto de arcos.
+    // Se actualiza el conjunto de arcos con los nuevos descubiertos
     graphEdges ++= newEdges
   }
 
@@ -376,6 +378,28 @@ object CHA {
     }
     directSubtypes.foreach(recurse)
     allSubtypes
+  }
+
+  /**
+   * Encuentra todas las clases padres asociados a un tipo de acuerdo a la jerarquía de clases.
+   *
+   * @param baseType: Clase o tipo de un objeto.
+   * @param classHierarchy: Mapeo que almacena la jerarquía de clases (Superclase -> Subclases).
+   * @return: Set que contiene las superclases asociadas a una clase.
+   */
+  def findAllSupertypes(baseType: String, classHierarchy: Map[String, Set[String]]): Set[String] = {
+    val parents = Set[String]()
+    //  Llenamos `parents` con las superclases directas de `baseType`
+    classHierarchy.foreach { case (parent, subclasses) =>
+      if (subclasses.contains(baseType)) {
+        parents += parent
+      }
+    }
+    //  Usamos `foreach` en lugar de `++` para mantener mutabilidad
+    parents.foreach { p =>
+      parents ++= findAllSupertypes(p, classHierarchy)
+    }
+    parents // Retornamos el `mutable.Set`
   }
 
 
@@ -449,29 +473,63 @@ def findCalleesFromGraphNodes(
                          enclosingClassOrTrait: String,
                          graphNodes: scala.collection.mutable.Set[String],
                          graphEdges: scala.collection.mutable.Set[(String, String)],
-                         pendingNodes: Queue[String],
+                         pendingNodes: scala.collection.mutable.Queue[String],
                          variableTypes: Map[String, String]
                        ): Unit = {
+    println(s"Nodo que se analiza: $currentNode")
+
     body.collect {
-      case Term.Apply(fun, args) =>
-        val (calleeName, context) = fun match {
-          // Método llamado dentro de la misma clase (sin prefijo)
-          case Term.Name(name) =>
-            (name, enclosingClassOrTrait)
+      case methodCall: Term =>
+        extractMethodCall(methodCall, currentNode, enclosingClassOrTrait, graphNodes, graphEdges, pendingNodes, variableTypes)
+    }
+  }
 
-          // Método llamado desde otro objeto o paquete
-          case Term.Select(obj, Term.Name(name)) =>
-            val resolvedContext = resolveFullQualifiedName(obj, variableTypes) // Resolver nombre de paquete
-            (name, resolvedContext)
+  /**
+   *
+   * @param term
+   * @param caller
+   * @param enclosingClassOrTrait
+   * @param graphNodes
+   * @param graphEdges
+   * @param pendingNodes
+   * @param variableTypes
+   */
+  def extractMethodCall(
+                         term: Term,
+                         caller: String,
+                         enclosingClassOrTrait: String,
+                         graphNodes: scala.collection.mutable.Set[String],
+                         graphEdges: scala.collection.mutable.Set[(String, String)],
+                         pendingNodes: scala.collection.mutable.Queue[String],
+                         variableTypes: Map[String, String]
+                       ): Unit = {
+    term match {
+      // Detectar llamadas a métodos como `foo()`
+      case Term.Apply(Term.Name(methodName), args) =>
+        val newNode = buildNodeName(enclosingClassOrTrait, methodName, args.map(_.syntax).mkString(", "))
+        println(s"Detectada llamada a método directo: $newNode")
+        addNodeAndEdge(caller, newNode, graphNodes, graphEdges, pendingNodes)
 
-          case _ =>
-            ("", "")
-        }
-        if (calleeName.nonEmpty) {
-          val argumentTypes = args.map(_.syntax).mkString(", ")
-          val newNode = buildNodeName(context, calleeName, argumentTypes)
-          addNodeAndEdge(currentNode, newNode, graphNodes, graphEdges, pendingNodes)
-        }
+      // Detectar llamadas de métodos en objetos como `obj.method()`
+      case Term.Apply(Term.Select(obj, Term.Name(methodName)), args) =>
+        val contextType = resolveFullQualifiedName(obj, variableTypes)
+        val newNode = buildNodeName(contextType, methodName, args.map(_.syntax).mkString(", "))
+        println(s"Detectada llamada a método con objeto: $newNode")
+        addNodeAndEdge(caller, newNode, graphNodes, graphEdges, pendingNodes)
+
+      // Detectar referencias a métodos como `obj.method` sin `Apply`
+      case Term.Select(obj, Term.Name(methodName)) =>
+
+        val contextType = resolveFullQualifiedName(obj, variableTypes)
+        val newNode = s"$contextType.$methodName()"
+        println(s"Detectada referencia a método: $newNode")
+        addNodeAndEdge(caller, newNode, graphNodes, graphEdges, pendingNodes)
+
+      // Si el nodo tiene hijos, analizarlos recursivamente
+      case other =>
+        other.children.collect { case t: Term => t }
+          .foreach(child => extractMethodCall(child, caller, enclosingClassOrTrait, graphNodes, graphEdges, pendingNodes, variableTypes))
+
     }
   }
 
@@ -537,35 +595,37 @@ def findCalleesFromGraphNodes(
    * @return
    */
 
-def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String]): String = {
-  if (node.contains("(") && node.contains(")")) {
-    val rawParams = node.substring(
-      node.indexOf("(") + 1,
-      node.lastIndexOf(")")
-    )
+  def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String]): String = {
+    val cleanedNode = node.replaceAll("\\[.*?\\]", "") // Elimina restricciones de tipo como `[B]`
 
-    // Extraer los parámetros correctamente
-    val paramValues = extractParameterValues(rawParams)
+    if (cleanedNode.contains("(") && cleanedNode.contains(")")) {
+      val rawParams = cleanedNode.substring(
+        cleanedNode.indexOf("(") + 1,
+        cleanedNode.lastIndexOf(")")
+      )
 
-    val paramTypes = paramValues.map { value =>
-      // Intentar obtener el tipo estático del argumento desde `variableTypes`
-      variableTypes.getOrElse(value, {
-        value match {
-          case v if v.matches("\\d+")       => "Int"    // Números enteros
-          case v if v.matches("\\d+\\.\\d+") => "Double" // Números decimales
-          case v if v.matches("\".*\"")      => "String" // Cadenas de texto
-          case v if v.startsWith("s\"")      => "String" // Interpolaciones Scala (s"...")
-          case _                             => ""    // Tipo genérico
-        }
-      })
-    }.filter(_ != "Unknown").mkString(", ") // Filtramos los valores "Unknown"
+      // Extraer los parámetros correctamente
+      val paramValues = extractParameterValues(rawParams)
 
-    val methodName = node.substring(0, node.indexOf("("))
-    if (paramTypes.isEmpty) s"$methodName()" else s"$methodName($paramTypes)"
-  } else {
-    node
+      val paramTypes = paramValues.map { value =>
+        variableTypes.getOrElse(value, {
+          value match {
+            case v if v.matches("\\d+")       => "Int"
+            case v if v.matches("\\d+\\.\\d+") => "Double"
+            case v if v.matches("\".*\"")      => "String"
+            case v if v.startsWith("s\"")      => "String"
+            case _                             => ""
+          }
+        })
+      }.filter(_ != "").mkString(", ")
+
+      val methodName = cleanedNode.substring(0, cleanedNode.indexOf("("))
+      if (paramTypes.isEmpty) s"$methodName()" else s"$methodName($paramTypes)"
+    } else {
+      cleanedNode
+    }
   }
-}
+
 
   /**
    * Funcion auxiliar para extraer los parametros del llamado de un metodo y retornar una lista con ellos
@@ -583,11 +643,14 @@ def modifyNodeWithParameterTypes(node: String, variableTypes: Map[String, String
    * @return
    */
   def normalizeNodeName(node: String): String = {
-    if (node.contains("(")) {
-      val base = node.substring(0, node.indexOf("("))
-      if (node.endsWith("()")) base else s"$base()"
+    //Si es solo para comparación, eliminamos los `[T]`, `[B]`, etc.
+    val processedNode =  node.replaceAll("\\[.*?\\]", "")
+
+    if (processedNode.contains("(")) {
+      val base = processedNode.substring(0, processedNode.indexOf("("))
+      if (processedNode.endsWith("()")) base else s"$base()"
     } else {
-      node
+      processedNode
     }
   }
 
@@ -609,7 +672,7 @@ def addUnreachableNodes(
                          unreachableNodes: scala.collection.mutable.Set[String]
                        ): Unit = {
   // Normalizar los nombres de los nodos alcanzables
-  val normalizedGraphNodes = graphNodes.map(normalizeNodeName)
+  val normalizedGraphNodes = graphNodes.map(node => normalizeNodeName(node))
 
   // Recorrer el AST para encontrar todos los métodos definidos
   tree.collect {
@@ -643,7 +706,6 @@ def addUnreachableNodes(
       !graphNodes.exists { reachable =>
         val normalizedReachable = normalizeNodeName(reachable)
         normalizedReachable == normalizedUnreachable
-
       }
     }
   }
