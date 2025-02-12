@@ -1,0 +1,17 @@
+digraph CallGraph {
+  node [shape=box];
+  "C.foo()" [style=filled, fillcolor=red];
+  "D.foo()" [style=filled, fillcolor=red];
+  "A.foo()" [style=filled, fillcolor=red];
+  "B.foo()" [style=filled, fillcolor=white];
+  "C.<init>()" [style=filled, fillcolor=white];
+  "Example.main()" [style=filled, fillcolor=white];
+  "CallSiteClass[B].callsite()" [style=filled, fillcolor=white];
+  "CallSiteClass[B].<init>()" [style=filled, fillcolor=white];
+  "B.<init>()" [style=filled, fillcolor=white];
+  "Example.main()" -> "CallSiteClass[B].<init>()";
+  "Example.main()" -> "C.<init>()";
+  "CallSiteClass[B].callsite()" -> "B.foo()";
+  "Example.main()" -> "CallSiteClass[B].callsite()";
+  "Example.main()" -> "B.<init>()";
+}
