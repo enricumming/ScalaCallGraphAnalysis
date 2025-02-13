@@ -370,71 +370,6 @@ object TCABounds {
    * @param source                                : AST generado por Scalameta
    * @param instantiatedTypes          : Conjunto que lleva el registro de tipos de variables inicializadas en el codigo
    */
-//  def applyTCABounds(
-//                      graphNodes: Set[String],
-//                      graphEdges: Set[(String, String)],
-//                      classHierarchy: Map[String, Set[String]],
-//                      methodImplementations: Map[String, Set[String]],
-//                      sourceTrees: List[Tree],
-//                      variableTypes: Map[String, String],
-//                      instantiatedTypes: Set[String],
-//                      typeBoundsMapping: Map[String, String]
-//                    ): Unit = {
-//    val newEdges = Set[(String, String)]()
-//
-//    graphEdges.foreach { case (caller, callee) =>
-//      callee.split("\\.") match {
-//        case Array(contextType, methodName) =>
-//          val normalizedMethodName = methodName.replaceAll("\\(.*\\)", "") // Elimina paréntesis
-//
-//          //  Resolver restricciones de tipo `T <: A`
-//          val resolvedContextType = typeBoundsMapping.getOrElse(contextType, contextType)
-//
-//          //  Si `resolvedContextType` es una restricción de tipo (ej: `T`), buscar su upper bound
-//          val upperBound = typeBoundsMapping.getOrElse(resolvedContextType, resolvedContextType)
-//          println(s"El upperbound es: $upperBound de la clase que se analiza: $resolvedContextType")
-//
-//          //  Buscar todas las subclases y superclases
-//          val relatedClasses = findAllSubtypes(upperBound, classHierarchy) ++ findAllSupertypes(upperBound, classHierarchy)
-//
-//          // 🔹 Verificar que `resolvedContextType` pertenece al conjunto permitido
-//          if (!relatedClasses.contains(resolvedContextType) && resolvedContextType != upperBound) {
-//            println(s"️ Error de restricción de tipo: $resolvedContextType no cumple con $upperBound")
-//            return //  Si no cumple con la restricción, no agregamos ningún arco
-//          }
-//
-//          // Caso de clases abstractas, filtrar solo instancias en `Σ`, OMITIR POR AHORA
-////          val relevantClasses = if (isAbstractType(resolvedContextType)) {
-////            instantiatedTypes.filter(cls => relatedClasses.contains(cls))
-////          } else {
-////            relatedClasses
-////          }
-//
-////          //  Filtrar solo clases instanciadas y que implementan el método
-//          val resolvedTargets = relatedClasses.filter(instantiatedTypes.contains).filter { cls =>
-//            methodImplementations.getOrElse(normalizedMethodName, Set()).contains(cls)
-//          }
-//          println(s"Las clases instanciadas que implementan el metodo: $normalizedMethodName son: $resolvedTargets")
-//
-//          //  Agregar nodos y arcos para cada implementación válida
-//          resolvedTargets.foreach { targetClass =>
-//            val targetMethod = s"$targetClass.$methodName"
-//            if (!graphEdges.contains((caller, targetMethod))) {
-//              graphNodes += targetMethod
-//              newEdges += (caller -> targetMethod)
-//              println(s" Agregando método de subtipo o supertipo con TCABounds: $caller -> $targetMethod")
-//
-//              //  Revisar el cuerpo del método recién agregado
-//              findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
-//            }
-//          }
-//        case _ =>
-//          println(s"Advertencia: formato inesperado en callee '$callee'")
-//      }
-//    }
-//    // Se actualiza el conjunto de arcos con los nuevos descubiertos
-//    graphEdges ++= newEdges
-//  }
 
 def applyTCABounds(
                     graphNodes: scala.collection.mutable.Set[String],
@@ -505,7 +440,7 @@ def applyTCABounds(
     }
   }
 
-  // 🔹 Actualizar los arcos del grafo
+  //  Actualizar los arcos del grafo
   graphEdges ++= newEdges
 }
 
@@ -517,31 +452,34 @@ def applyTCABounds(
    * @param classHierarchy Mapeo de jerarquía de clases, ej: A -> Set(B)
    * @return `true` si la instancia cumple con la restricción, `false` en caso contrario.
    */
-  def isValidTypeInstantiation(
-                                contextType: String,
-                                classTypeBoundsMapping: Map[String, String],
-                                classHierarchy: Map[String, Set[String]]
-                              ): Boolean = {
-    val baseClass = contextType.replaceAll("\\[.*\\]", "") // Extraemos CallSiteClass de CallSiteClass[B]
+def isValidTypeInstantiation(
+                              contextType: String,
+                              classTypeBoundsMapping: Map[String, String],
+                              classHierarchy: Map[String, Set[String]]
+                            ): Boolean = {
+  val baseClass = contextType.replaceAll("\\[.*\\]", "") // Extraemos CallSiteClass de CallSiteClass[B]
 
-    // Si la clase no tiene restricciones de tipo, es válida por defecto
-    if (!classTypeBoundsMapping.contains(baseClass)) return true
+  // Si la clase no tiene restricciones de tipo, es válida por defecto
+  if (!classTypeBoundsMapping.contains(baseClass)) return true
 
-    val requiredType = classTypeBoundsMapping(baseClass) // Tipo que debe cumplir (ej: A)
-    val extractedType = extractGenericType(contextType)  // Tipo real de la instancia (ej: B)
+  val requiredTypes = classTypeBoundsMapping(baseClass).split(" with ").toSet // Descomponer en múltiples restricciones
+  println(s"Los requisitos de tipo son: $requiredTypes")
+  val extractedType = extractGenericType(contextType)  // Tipo real de la instancia (ej: B)
 
-    println(s" Verificando si `$extractedType` es subtipo de `$requiredType` para `$contextType`")
+  println(s" Verificando si `$extractedType` cumple con la restriccion de herencia de `${requiredTypes.mkString(" & ")}` para `$contextType`")
 
-    // Verificar si `extractedType` es subtipo de `requiredType`
-    val valid = findAllSubtypes(requiredType, classHierarchy).contains(extractedType)
+  // Obtener todos los subtipos conocidos del `extractedType`
+  val parentTypes = findAllSupertypes(extractedType, classHierarchy) + extractedType
 
-    if (!valid) {
-      println(s" Se evita la instancia de `$contextType` ya que `$extractedType` no es subtipo de `$requiredType`")
-    }
-    println(s"Se cumple con la restriccion de tipo? $valid")
-    valid
+  // Verificar si `extractedType` es subtipo de **todas** las restricciones
+  val valid = requiredTypes.forall(req => parentTypes.contains(req))
 
+  if (!valid) {
+    println(s" Se evita la instancia de `$contextType` ya que `$extractedType` no es subtipo de `${requiredTypes.mkString(" & ")}`")
   }
+  println(s"Se cumple con la restricción de tipo? $valid")
+  valid
+}
 
   /**
    * Extrae el tipo genérico dentro de una clase parametrizada.
@@ -553,8 +491,6 @@ def applyTCABounds(
     val regex = "\\[(.*?)\\]".r
     regex.findFirstMatchIn(typeName).map(_.group(1)).getOrElse("")
   }
-
-
 
   /**
    * Encuentra todos los subtipos asociados a un tipo de acuerdo a la jerarquia de clases construida en base al codigo fuente.
