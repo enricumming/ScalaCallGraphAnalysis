@@ -12,6 +12,8 @@ Las versiones utilizadas fueron:
 
 ### Algoritmos Implementados
 
+Este proyecto implementa algoritmos de construcción de *call graphs* para Scala basados en el trabajo de Ali et al [1]. 
+
 #### Name-Based Resolution (RA)
 
 * Construye el Call Graph basándose únicamente en los nombres de los métodos.
@@ -77,3 +79,8 @@ Para ejecutar el análisis en proyecto Scala:
 7. Visualiza el Call Graph generado usando Graphviz:
 
         dot -Tpng archivo_output.dot -o callgraph.png
+
+
+### Citas
+
+   [1] Ali, K., Rapoport, M., Lhoták, O., Dolby, J., & Tip, F. (2014). Constructing Call Graphs of Scala Programs. *European Conference on Object-Oriented Programming (ECOOP)*, 12, 1-27.
