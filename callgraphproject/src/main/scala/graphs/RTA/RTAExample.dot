@@ -1,18 +1,23 @@
 digraph CallGraph {
   node [shape=box];
-  "C.foo()" [style=filled, fillcolor=red];
+  "C.foo()" [style=filled, fillcolor=white];
+  "D.<init>()" [style=filled, fillcolor=white];
   "D.foo()" [style=filled, fillcolor=red];
+  "Example3.main()" [style=filled, fillcolor=white];
   "A.foo()" [style=filled, fillcolor=white];
   "A.<init>()" [style=filled, fillcolor=white];
   "B.foo()" [style=filled, fillcolor=white];
-  "Example.main()" [style=filled, fillcolor=white];
-  "CallSiteClass[B].callsite()" [style=filled, fillcolor=white];
-  "CallSiteClass[B].<init>()" [style=filled, fillcolor=white];
+  "CallSiteClass[A].<init>()" [style=filled, fillcolor=white];
+  "C.<init>()" [style=filled, fillcolor=white];
+  "CallSiteClass[A].callsite()" [style=filled, fillcolor=white];
   "B.<init>()" [style=filled, fillcolor=white];
-  "Example.main()" -> "CallSiteClass[B].<init>()";
-  "Example.main()" -> "B.<init>()";
-  "Example.main()" -> "A.<init>()";
-  "CallSiteClass[B].callsite()" -> "B.foo()";
-  "Example.main()" -> "CallSiteClass[B].callsite()";
-  "CallSiteClass[B].callsite()" -> "A.foo()";
+  "Example3.main()" -> "C.<init>()";
+  "Example3.main()" -> "CallSiteClass[A].callsite()";
+  "Example3.main()" -> "A.<init>()";
+  "Example3.main()" -> "CallSiteClass[A].<init>()";
+  "CallSiteClass[A].callsite()" -> "A.foo()";
+  "Example3.main()" -> "D.<init>()";
+  "Example3.main()" -> "B.<init>()";
+  "CallSiteClass[A].callsite()" -> "C.foo()";
+  "CallSiteClass[A].callsite()" -> "B.foo()";
 }

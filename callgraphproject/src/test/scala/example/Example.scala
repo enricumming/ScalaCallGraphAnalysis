@@ -1,42 +1,9 @@
-package example
-
-object Example {
-
-  class A {
-    def foo = "A.foo"
-  }
-
-  class B extends A {
-    override def foo = "B.foo"
-  }
-
-  class C {
-    def foo = "C.foo"
-  }
-
-  class D {
-    def foo = "D.foo"
-  }
-
-  class CallSiteClass[T <: A](val receiver: T) {
-    def callsite = {
-      receiver.foo
-    }
-  }
-
-  def main(args: Array[String]): Unit = {
-    new A
-    val receiver = new B
-    new C
-    val callSiteClass = new CallSiteClass[B](receiver);
-    callSiteClass.callsite()
-  }
-}
-
+//package example
+//
 //object Example {
 //
-//  abstract class A { // 🔹 Ahora A es abstracta
-//    def foo: String // 🔹 Método abstracto
+//  class A {
+//    def foo = "A.foo"
 //  }
 //
 //  class B extends A {
@@ -47,8 +14,8 @@ object Example {
 //    def foo = "C.foo"
 //  }
 //
-//  class D extends B {
-//    override def foo = "D.foo"
+//  class D {
+//    def foo = "D.foo"
 //  }
 //
 //  class CallSiteClass[T <: A](val receiver: T) {
@@ -58,11 +25,14 @@ object Example {
 //  }
 //
 //  def main(args: Array[String]): Unit = {
-//    val receiver: A = new B() //  `receiver` es de tipo `A`, pero instancia `B`
-//    val callSiteClass = new CallSiteClass[A](receiver)
+//    new A
+//    val receiver = new B
+//    new C
+//    val callSiteClass = new CallSiteClass[B](receiver);
 //    callSiteClass.callsite()
 //  }
 //}
+
 
   /**
    * Se crean instancias de A, B y C, pero nunca de D.

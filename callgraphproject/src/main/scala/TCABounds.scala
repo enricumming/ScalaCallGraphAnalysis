@@ -42,11 +42,12 @@ object TCABounds {
     val instantiatedTypes = Set[String]()
     val typeBoundsMapping = Map[String, String]()
     val classTypeBoundsMapping = Map[String, String]()
+    val abstractClasses = Set[String]()
 
     // Analizar cada archivo
     sourceTrees.foreach { source =>
-      buildClassHierarchy(source, classHierarchy, methodImplementations)
-      extractTypeBounds(source, typeBoundsMapping, classTypeBoundsMapping )
+      buildClassHierarchy(source, classHierarchy, methodImplementations, abstractClasses)
+      extractTypeBounds(source, typeBoundsMapping, classTypeBoundsMapping)
       generateGraphFromAST(source, graphNodes, graphEdges, classHierarchy, variableTypes, instantiatedTypes)
     }
     println(s"Jerarquia de clases es: $classHierarchy")
@@ -89,14 +90,15 @@ object TCABounds {
   /**
    * Recorre el AST buscando definiciones de clases y traits y construye las variables classHierarchy y methodImplementations.
    *
-   * @param tree                                    : AST generado por Scalameta
-   * @param classHierarchy                : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
-   * @param methodImplementations  : Mapeo que almacena las clases que implementan un método específico.
+   * @param tree                  : AST generado por Scalameta
+   * @param classHierarchy        : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
+   * @param methodImplementations : Mapeo que almacena las clases que implementan un método específico.
    */
   def buildClassHierarchy(
                            tree: Tree,
                            classHierarchy: Map[String, Set[String]],
-                           methodImplementations: Map[String, Set[String]]
+                           methodImplementations: Map[String, Set[String]],
+                           abstractClasses: Set[String]
                          ): Unit = {
     /**
      * tree.collect: Recorre el AST en busca de nodos por ejemplo, Defn.Class
@@ -104,8 +106,8 @@ object TCABounds {
      * defn.name.value = extraer el nombre del nodo de la clase. Ej: Dog
      * defn.templ  : Cada definicion de clase contiene una propiedad templ (template). Contiene la estructura interna de una clase
      * Representa:  Las superclases o supertraits que la clase extiende.
-     *  Los métodos y valores definidos dentro de la clase o trait.
-     *  Las inicializaciones y otros detalles internos.
+     * Los métodos y valores definidos dentro de la clase o trait.
+     * Las inicializaciones y otros detalles internos.
      * inits : Dentro de templ, exista una lista llamada inits. Esta contiene las clases o traits base que la clase esta extendiendo o implementando.
      * Cada elemento de esta lista es un objeto de tipo Init, que representa una clase base o trait base y su constructor llamado (si lo hay).
      * init.tpe.syntax: Entrega el nombre de la clase padre
@@ -119,12 +121,25 @@ object TCABounds {
     tree.collect {
       case defn: Defn.Class =>
         val className = defn.name.value
-        //        println(s"La clase es: $className, y esta extiende a: ${defn.templ.inits}")
+
+        // Si la clase tiene métodos sin implementación, la marcamos como abstracta
+        val isAbstract = defn.templ.stats.exists {
+          case d: Defn.Def if d.body.isInstanceOf[Term.Name] => true
+          case _ => false
+        }
+
+        if (isAbstract) {
+          abstractClasses += className
+          println(s" Clase abstracta detectada: $className")
+        }
+
+        // Registrar jerarquia de clases
         defn.templ.inits.foreach { init =>
           val parentName = init.tpe.syntax
           // Se actualiza el mapa de la jerarquia de clases
           classHierarchy.getOrElseUpdate(parentName, Set()) += className
         }
+
         defn.templ.stats.foreach {
           // Captura los metodos dentro de la clase encontrada en el AST. Luego, se actualiza el mapeo de implementacion de metodos.
           case method: Defn.Def =>
@@ -152,24 +167,58 @@ object TCABounds {
    *
    * @param tree
    */
-  def extractTypeBounds(tree: Tree, typeBoundsMapping: Map[String, String],
-                        classTypeBoundsMapping: Map[String, String]):
-  Unit = {
-    tree.collect {
-      case cls: Defn.Class if cls.tparams.nonEmpty =>
-        val className = cls.name.value
+//  def extractTypeBounds(tree: Tree, typeBoundsMapping: Map[String, String],
+//                        classTypeBoundsMapping: Map[String, String]):
+//  Unit = {
+//    tree.collect {
+//      case cls: Defn.Class if cls.tparams.nonEmpty =>
+//        val className = cls.name.value
+//
+//        cls.tparams.foreach { tparam =>
+//          tparam.tbounds match {
+//            case Type.Bounds(_, Some(upper)) =>
+//              typeBoundsMapping(tparam.name.value) = upper.syntax
+//              classTypeBoundsMapping(className) = upper.syntax // Asociamos la restricción a la clase
+//
+//              println(s" Restricción detectada en clase: `$className` debe cumplir con `${upper.syntax}`")
+//          }
+//        }
+//    }
+//  }
 
-        cls.tparams.foreach { tparam =>
-          tparam.tbounds match {
-            case Type.Bounds(_, Some(upper)) =>
-              typeBoundsMapping(tparam.name.value) = upper.syntax
-              classTypeBoundsMapping(className) = upper.syntax  // Asociamos la restricción a la clase
+def extractTypeBounds(
+                       tree: Tree,
+                       typeBoundsMapping: Map[String, String],
+                       classTypeBoundsMapping: Map[String, String]
+                     ): Unit = {
+  tree.collect {
+    case cls: Defn.Class if cls.tparams.nonEmpty =>
+      val className = cls.name.value
 
-              println(s" Restricción detectada en clase: `$className` debe cumplir con `${upper.syntax}`")
-          }
+      cls.tparams.foreach { tparam =>
+        tparam.tbounds match {
+          case Type.Bounds(Some(lower), Some(upper)) =>
+            typeBoundsMapping(tparam.name.value) = s"[$lower, $upper]"
+            classTypeBoundsMapping(className) = s"[$lower, $upper]"
+            println(s"🔹 Restricción detectada en clase `$className`: `${tparam.name.value} ∈ [$lower, $upper]`")
+
+          case Type.Bounds(None, Some(upper)) =>
+            typeBoundsMapping(tparam.name.value) = s"<: $upper"
+            classTypeBoundsMapping(className) = s"<: $upper"
+            println(s"🔹 Restricción detectada en clase `$className`: `${tparam.name.value} <: $upper`")
+
+          case Type.Bounds(Some(lower), None) =>
+            typeBoundsMapping(tparam.name.value) = s">: $lower"
+            classTypeBoundsMapping(className) = s">: $lower"
+            println(s"🔹 Restricción detectada en clase `$className`: `${tparam.name.value} >: $lower`")
+
+          case Type.Bounds(None, None) =>
+            println(s"⚠️ Advertencia: No hay restricciones explícitas para `${tparam.name.value}` en `$className`")
         }
-    }
+      }
   }
+}
+
 
   /**
    *
@@ -185,12 +234,12 @@ object TCABounds {
   /**
    * Recorre un AST desde el punto de entrada main() y genera los primeros nodos y arcos de un Call graph en base a un codigo fuente.
    *
-   * @param tree                            : AST generado por Scalameta
-   * @param graphNodes                : Set de nodos que representan llamados de metodo de un codigo fuente
-   * @param graphEdges                : Set de arcos que une nodos tal que se genere un Call Graph
-   * @param classHierarchy        : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
-   * @param variableTypes          : Mapeo que permite conocer el tipo de las variables inicializadas en el codigo fuente
-   * @param instantiatedTypes  : Conjunto que lleva el registro de tipos de variables inicializadas en el codigo
+   * @param tree              : AST generado por Scalameta
+   * @param graphNodes        : Set de nodos que representan llamados de metodo de un codigo fuente
+   * @param graphEdges        : Set de arcos que une nodos tal que se genere un Call Graph
+   * @param classHierarchy    : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
+   * @param variableTypes     : Mapeo que permite conocer el tipo de las variables inicializadas en el codigo fuente
+   * @param instantiatedTypes : Conjunto que lleva el registro de tipos de variables inicializadas en el codigo
    */
   def generateGraphFromAST(
                             tree: Tree,
@@ -205,8 +254,8 @@ object TCABounds {
     /**
      * Agrega un arco al call graph, siendo este una representacion de llamadas de metodos entre dos nodos.
      *
-     * @param caller  : Nodo que llama a un metodo
-     * @param callee  : Nodo que es llamado
+     * @param caller : Nodo que llama a un metodo
+     * @param callee : Nodo que es llamado
      */
     def addEdge(caller: String, callee: String): Unit = {
       if (!graphEdges.contains((caller, callee))) {
@@ -218,8 +267,8 @@ object TCABounds {
     /**
      * Recorre el AST desde el nodo main e identifica llamadas de metodos, nuevas instancias de clases y bloques de codigos.
      *
-     * @param currentNode  : Nodo actual desde el cual se comienza a hacer un analisis del flujo de un codigo fuente.
-     * @param caller            : Nodo que llama a un metodo
+     * @param currentNode : Nodo actual desde el cual se comienza a hacer un analisis del flujo de un codigo fuente.
+     * @param caller      : Nodo que llama a un metodo
      */
     def processNode(currentNode: Tree, caller: String): Unit = {
       //      println(s"Procesando nodo con processNode: ${currentNode.structure}")
@@ -363,123 +412,123 @@ object TCABounds {
    * Implementa la logica del algoritmo CHA para resolver la creacion de nodos en caso de llamados polimorficos en el codigo fuente.
    * Busca subtipos en la jerarquia de clases, detecta implementaciones de metodos con el mismo nombre que las clases padres y luego se agregan nodos/arcos correspondientes.
    *
-   * @param graphNodes                        : Conjunto de nodos del grafo.
-   * @param graphEdges                        : Conjunto de arcos del grafo (caller -> callee).
-   * @param classHierarchy                : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
-   * @param methodImplementations  : Mapeo que almacena las clases que implementan un método específico.
-   * @param source                                : AST generado por Scalameta
-   * @param instantiatedTypes          : Conjunto que lleva el registro de tipos de variables inicializadas en el codigo
+   * @param graphNodes            : Conjunto de nodos del grafo.
+   * @param graphEdges            : Conjunto de arcos del grafo (caller -> callee).
+   * @param classHierarchy        : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
+   * @param methodImplementations : Mapeo que almacena las clases que implementan un método específico.
+   * @param source                : AST generado por Scalameta
+   * @param instantiatedTypes     : Conjunto que lleva el registro de tipos de variables inicializadas en el codigo
    */
 
-def applyTCABounds(
-                    graphNodes: scala.collection.mutable.Set[String],
-                    graphEdges: scala.collection.mutable.Set[(String, String)],
-                    classHierarchy: Map[String, Set[String]],
-                    methodImplementations: Map[String, Set[String]],
-                    sourceTrees: List[Tree],
-                    variableTypes: Map[String, String],
-                    instantiatedTypes: Set[String],
-                    typeBoundsMapping: Map[String, String],
-                    classTypeBoundsMapping: Map[String, String]
-                  ): Unit = {
+  def applyTCABounds(
+                      graphNodes: scala.collection.mutable.Set[String],
+                      graphEdges: scala.collection.mutable.Set[(String, String)],
+                      classHierarchy: Map[String, Set[String]],
+                      methodImplementations: Map[String, Set[String]],
+                      sourceTrees: List[Tree],
+                      variableTypes: Map[String, String],
+                      instantiatedTypes: Set[String],
+                      typeBoundsMapping: Map[String, String],
+                      classTypeBoundsMapping: Map[String, String]
+                    ): Unit = {
 
-  val newEdges = scala.collection.mutable.Set[(String, String)]()
+    val newEdges = scala.collection.mutable.Set[(String, String)]()
 
-  // Eliminar nodos inválidos antes de procesar el grafo
-  val invalidNodes = graphNodes.filterNot(node => {
-    val contextType = node.split("\\.").head
-    isValidTypeInstantiation(contextType, classTypeBoundsMapping, classHierarchy)
-  })
+    // Eliminar nodos inválidos antes de procesar el grafo
+    val invalidNodes = graphNodes.filterNot(node => {
+      val contextType = node.split("\\.").head
+      isValidTypeInstantiation(contextType, classTypeBoundsMapping, classHierarchy)
+    })
 
-  invalidNodes.foreach { node =>
-    println(s" Eliminando nodo inválido: $node")
+    invalidNodes.foreach { node =>
+      println(s" Eliminando nodo inválido: $node")
 
-    // Eliminar todos los arcos donde `node` es caller o callee
-    graphEdges.retain { case (caller, callee) =>
-      caller != node && callee != node
+      // Eliminar todos los arcos donde `node` es caller o callee
+      graphEdges.retain { case (caller, callee) =>
+        caller != node && callee != node
+      }
+      // Finalmente eliminarlo del conjunto de nodos
+      graphNodes -= node
     }
-    // Finalmente eliminarlo del conjunto de nodos
-    graphNodes -= node
-  }
 
-  // Procesar los nodos restantes
-  graphEdges.foreach { case (caller, callee) =>
-    callee.split("\\.") match {
-      case Array(contextType, methodName) =>
-        val normalizedMethodName = methodName.replaceAll("\\(.*\\)", "")
+    // Procesar los nodos restantes
+    graphEdges.foreach { case (caller, callee) =>
+      callee.split("\\.") match {
+        case Array(contextType, methodName) =>
+          val normalizedMethodName = methodName.replaceAll("\\(.*\\)", "")
 
-        // Verificación de restricción de tipos antes de continuar
-        if (!isValidTypeInstantiation(contextType, classTypeBoundsMapping, classHierarchy)) {
-          return
-        }
-
-        // Buscar todas las clases relacionadas
-        val relatedClasses = findAllSubtypes(contextType, classHierarchy) ++ findAllSupertypes(contextType, classHierarchy)
-
-        //  Filtrar solo clases instanciadas y que implementan el método
-        val resolvedTargets = relatedClasses.filter(instantiatedTypes.contains).filter { cls =>
-          methodImplementations.getOrElse(normalizedMethodName, Set()).contains(cls)
-        }
-
-        println(s"️ Clases instanciadas que implementan `$normalizedMethodName`: $resolvedTargets")
-
-        // Agregar nodos y arcos nuevos
-        resolvedTargets.foreach { targetClass =>
-          val targetMethod = s"$targetClass.$methodName"
-          if (!graphEdges.contains((caller, targetMethod))) {
-            graphNodes += targetMethod
-            newEdges += (caller -> targetMethod)
-            println(s" Agregando método de subtipo/supertipo con TCABounds: $caller -> $targetMethod")
-
-            // Revisar el cuerpo del método recién agregado
-            findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
+          // Verificación de restricción de tipos antes de continuar
+          if (!isValidTypeInstantiation(contextType, classTypeBoundsMapping, classHierarchy)) {
+            return
           }
-        }
-      case _ =>
-        println(s" Advertencia: formato inesperado en callee '$callee'")
-    }
-  }
 
-  //  Actualizar los arcos del grafo
-  graphEdges ++= newEdges
-}
+          // Buscar todas las clases relacionadas
+          val relatedClasses = findAllSubtypes(contextType, classHierarchy) ++ findAllSupertypes(contextType, classHierarchy)
+
+          //  Filtrar solo clases instanciadas y que implementan el método
+          val resolvedTargets = relatedClasses.filter(instantiatedTypes.contains).filter { cls =>
+            methodImplementations.getOrElse(normalizedMethodName, Set()).contains(cls)
+          }
+
+          println(s"️ Clases instanciadas que implementan `$normalizedMethodName`: $resolvedTargets")
+
+          // Agregar nodos y arcos nuevos
+          resolvedTargets.foreach { targetClass =>
+            val targetMethod = s"$targetClass.$methodName"
+            if (!graphEdges.contains((caller, targetMethod))) {
+              graphNodes += targetMethod
+              newEdges += (caller -> targetMethod)
+              println(s" Agregando método de subtipo/supertipo con TCABounds: $caller -> $targetMethod")
+
+              // Revisar el cuerpo del método recién agregado
+              findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)
+            }
+          }
+        case _ =>
+          println(s" Advertencia: formato inesperado en callee '$callee'")
+      }
+    }
+
+    //  Actualizar los arcos del grafo
+    graphEdges ++= newEdges
+  }
 
   /**
    * Verifica si una instancia de una clase genérica cumple con su restricción de tipo.
    *
-   * @param contextType Clase instanciada, ej: CallSiteClass[B]
+   * @param contextType            Clase instanciada, ej: CallSiteClass[B]
    * @param classTypeBoundsMapping Mapeo de restricciones de clases, ej: CallSiteClass -> A
-   * @param classHierarchy Mapeo de jerarquía de clases, ej: A -> Set(B)
+   * @param classHierarchy         Mapeo de jerarquía de clases, ej: A -> Set(B)
    * @return `true` si la instancia cumple con la restricción, `false` en caso contrario.
    */
-def isValidTypeInstantiation(
-                              contextType: String,
-                              classTypeBoundsMapping: Map[String, String],
-                              classHierarchy: Map[String, Set[String]]
-                            ): Boolean = {
-  val baseClass = contextType.replaceAll("\\[.*\\]", "") // Extraemos CallSiteClass de CallSiteClass[B]
+  def isValidTypeInstantiation(
+                                contextType: String,
+                                classTypeBoundsMapping: Map[String, String],
+                                classHierarchy: Map[String, Set[String]]
+                              ): Boolean = {
+    val baseClass = contextType.replaceAll("\\[.*\\]", "") // Extraemos CallSiteClass de CallSiteClass[B]
 
-  // Si la clase no tiene restricciones de tipo, es válida por defecto
-  if (!classTypeBoundsMapping.contains(baseClass)) return true
+    // Si la clase no tiene restricciones de tipo, es válida por defecto
+    if (!classTypeBoundsMapping.contains(baseClass)) return true
 
-  val requiredTypes = classTypeBoundsMapping(baseClass).split(" with ").toSet // Descomponer en múltiples restricciones
-  println(s"Los requisitos de tipo son: $requiredTypes")
-  val extractedType = extractGenericType(contextType)  // Tipo real de la instancia (ej: B)
+    val requiredTypes = classTypeBoundsMapping(baseClass).split(" with ").toSet // Descomponer en múltiples restricciones
+    println(s"Los requisitos de tipo son: $requiredTypes")
+    val extractedType = extractGenericType(contextType) // Tipo real de la instancia (ej: B)
 
-  println(s" Verificando si `$extractedType` cumple con la restriccion de herencia de `${requiredTypes.mkString(" & ")}` para `$contextType`")
+    println(s" Verificando si `$extractedType` cumple con la restriccion de herencia de `${requiredTypes.mkString(" & ")}` para `$contextType`")
 
-  // Obtener todos los subtipos conocidos del `extractedType`
-  val parentTypes = findAllSupertypes(extractedType, classHierarchy) + extractedType
+    // Obtener todos los subtipos conocidos del `extractedType`
+    val parentTypes = findAllSupertypes(extractedType, classHierarchy) + extractedType
 
-  // Verificar si `extractedType` es subtipo de **todas** las restricciones
-  val valid = requiredTypes.forall(req => parentTypes.contains(req))
+    // Verificar si `extractedType` es subtipo de **todas** las restricciones
+    val valid = requiredTypes.forall(req => parentTypes.contains(req))
 
-  if (!valid) {
-    println(s" Se evita la instancia de `$contextType` ya que `$extractedType` no es subtipo de `${requiredTypes.mkString(" & ")}`")
+    if (!valid) {
+      println(s" Se evita la instancia de `$contextType` ya que `$extractedType` no es subtipo de `${requiredTypes.mkString(" & ")}`")
+    }
+    println(s"Se cumple con la restricción de tipo? $valid")
+    valid
   }
-  println(s"Se cumple con la restricción de tipo? $valid")
-  valid
-}
 
   /**
    * Extrae el tipo genérico dentro de una clase parametrizada.
@@ -495,8 +544,8 @@ def isValidTypeInstantiation(
   /**
    * Encuentra todos los subtipos asociados a un tipo de acuerdo a la jerarquia de clases construida en base al codigo fuente.
    *
-   * @param baseType              : Clase o tipo de un objeto.
-   * @param classHierarchy  : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
+   * @param baseType       : Clase o tipo de un objeto.
+   * @param classHierarchy : Mapeo que almacena la jerarquia de clases tal que: Superclase -> subclases
    * @return: Set que contiene los subtipos asociados a una clase.
    */
   def findAllSubtypes(baseType: String, classHierarchy: Map[String, Set[String]]): Set[String] = {
@@ -517,8 +566,8 @@ def isValidTypeInstantiation(
   /**
    * Encuentra todas las clases padres asociados a un tipo de acuerdo a la jerarquía de clases.
    *
-   * @param baseType              : Clase o tipo de un objeto.
-   * @param classHierarchy  : Mapeo que almacena la jerarquía de clases (Superclase -> Subclases).
+   * @param baseType       : Clase o tipo de un objeto.
+   * @param classHierarchy : Mapeo que almacena la jerarquía de clases (Superclase -> Subclases).
    * @return: Set que contiene las superclases asociadas a una clase.
    */
   def findAllSupertypes(baseType: String, classHierarchy: Map[String, Set[String]]): Set[String] = {
@@ -539,10 +588,10 @@ def isValidTypeInstantiation(
   /**
    * Recorre el AST en busca de llamados de metodos  desde los nodos finales del grafo.
    *
-   * @param graphNodes        : Conjunto de nodos del grafo.
-   * @param graphEdges        : Conjunto de arcos del grafo (caller -> callee).
-   * @param tree                    : AST generado por Scalameta
-   * @param variableTypes  : Mapeo que permite conocer el tipo de las variables inicializadas en el codigo fuente
+   * @param graphNodes    : Conjunto de nodos del grafo.
+   * @param graphEdges    : Conjunto de arcos del grafo (caller -> callee).
+   * @param tree          : AST generado por Scalameta
+   * @param variableTypes : Mapeo que permite conocer el tipo de las variables inicializadas en el codigo fuente
    */
 
   def findCalleesFromGraphNodes(
@@ -653,7 +702,6 @@ def isValidTypeInstantiation(
 
       // Detectar referencias a métodos como `obj.method` sin `Apply`
       case Term.Select(obj, Term.Name(methodName)) =>
-
         val contextType = resolveFullQualifiedName(obj, variableTypes)
         val newNode = s"$contextType.$methodName()"
         println(s"Detectada referencia a método: $newNode")
@@ -696,8 +744,8 @@ def isValidTypeInstantiation(
   /**
    * Funcion auxiliar que identifica clase, objeto o trait que contiene un metodo y lo retorna como String
    *
-   * @param defn  : Definicion de un metodo encontrada en codigo fuente
-   * @param tree  : AST generado por Scalameta
+   * @param defn : Definicion de un metodo encontrada en codigo fuente
+   * @param tree : AST generado por Scalameta
    * @return: Clase, objeto o trait identificado
    */
   def findEnclosingClassOrTrait(defn: Defn.Def, tree: Tree): String = {
@@ -794,11 +842,11 @@ def isValidTypeInstantiation(
    * Recorre el AST para encontrar todos los metodos definidos en el codigo, luego, comparar con los nodos del grafo.
    * Si un metodo esta definido, pero no esta en el grafo ni en ningun arco como caller o calle se marca como inalcanzable.
    *
-   * @param tree                                    : AST generado por Scalameta
-   * @param graphNodes                        : Conjunto de nodos del grafo.
-   * @param methodImplementations  : Mapeo que almacena las clases que implementan un método específico.
-   * @param graphEdges                        : Conjunto de arcos del grafo (caller -> callee).
-   * @param unreachableNodes            : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
+   * @param tree                  : AST generado por Scalameta
+   * @param graphNodes            : Conjunto de nodos del grafo.
+   * @param methodImplementations : Mapeo que almacena las clases que implementan un método específico.
+   * @param graphEdges            : Conjunto de arcos del grafo (caller -> callee).
+   * @param unreachableNodes      : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
    */
   def addUnreachableNodes(
                            tree: Tree,
@@ -853,9 +901,9 @@ def isValidTypeInstantiation(
    * Dado un conjunto de nodos inalcanzables, se analizan los cuerpos de estos para encontrar llamados de metodos dentro de estos.
    * Luego, si un nodo inalcanzable llama a otro metodo, se agrega un arco entre estos.
    *
-   * @param unreachableNodes  : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
-   * @param graphEdges              : Conjunto de arcos del grafo (caller -> callee).
-   * @param tree                          : AST generado por Scalameta
+   * @param unreachableNodes : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
+   * @param graphEdges       : Conjunto de arcos del grafo (caller -> callee).
+   * @param tree             : AST generado por Scalameta
    */
 
   def processUnreachableNodes(
@@ -905,8 +953,8 @@ def isValidTypeInstantiation(
    * Dado un conjunto de arcos y un conjunto de nodos inalcanzables propaga la propiedad de estos nodos tal que se encuentre el flujo completo de
    * estos.
    *
-   * @param graphEdges              : Conjunto de arcos del grafo (caller -> callee).
-   * @param unreachableNodes  : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
+   * @param graphEdges       : Conjunto de arcos del grafo (caller -> callee).
+   * @param unreachableNodes : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
    */
   def propagateUnreachability(
                                graphEdges: Set[(String, String)],
@@ -943,9 +991,9 @@ def isValidTypeInstantiation(
   /**
    * Asegura que todos los nodos en el grafo (nodos finales, inalcanzables y arcos) tengan un formato consistente.
    *
-   * @param graphNodes              : Conjunto de nodos del grafo.
-   * @param graphEdges              : Conjunto de arcos del grafo (caller -> callee).
-   * @param unreachableNodes  : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
+   * @param graphNodes       : Conjunto de nodos del grafo.
+   * @param graphEdges       : Conjunto de arcos del grafo (caller -> callee).
+   * @param unreachableNodes : Conjunto de nodos inalcanzables por el flujo del codigo fuente analizado.
    */
   def normalizeNodes(
                       graphNodes: Set[String],
@@ -1033,4 +1081,5 @@ def isValidTypeInstantiation(
       Nil
     }
   }
+
 }

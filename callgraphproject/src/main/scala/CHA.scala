@@ -3,6 +3,7 @@ import scala.collection.mutable.{Set, Map,Queue}
 import scala.io.{Source => IOSource}
 import java.io.PrintWriter
 import java.io.File
+import scala.util.matching.Regex
 
 object CHA {
   def main(args: Array[String]): Unit = {
@@ -17,9 +18,20 @@ object CHA {
     val scalaFiles = getScalaFiles(inputDirectory)
 
     // Generar una lista de árboles AST a partir de los archivos Scala
-    val sourceTrees = scalaFiles.map { file =>
-      val code = IOSource.fromFile(file).mkString
-      code.parse[Source].get
+    val sourceTrees = scalaFiles.flatMap { file =>
+      val code = IOSource.fromFile(file).mkString.trim
+      if (code.isEmpty) {
+        println(s"️ Archivo vacío omitido: ${file.getName}")
+        None
+      } else {
+        try {
+          Some(code.parse[Source].get)
+        } catch {
+          case e: Exception =>
+            println(s" Error al parsear ${file.getName}: ${e.getMessage}")
+            None
+        }
+      }
     }
 
     /**
@@ -36,10 +48,21 @@ object CHA {
     val variableTypes = Map[String, String]()
     val methodImplementations = Map[String, Set[String]]()
     val graphNodes = scala.collection.mutable.Set[String]()
+
     val graphEdges = scala.collection.mutable.Set[(String, String)]()
     val unreachableNodes = Set[String]()
+    val routesFilePath = s"$inputDirectory/conf/routes"
+    val entryPoints = extractEntryPointsFromRoutes(routesFilePath)
 
-    // Analizar cada archivo
+    println(s"Los entry points del programa son : $entryPoints")
+
+    // Normalizar los nombres de los entry points para asegurar consistencia con el grafo
+//    val normalizedEntryPoints = entryPoints.map(normalizeNodeName)
+
+    // Agregarlos como nodos iniciales en el grafo
+    graphNodes ++= entryPoints
+
+//     Analizar cada archivo
     sourceTrees.foreach { source =>
       buildClassHierarchy(source, classHierarchy, methodImplementations)
       generateGraphFromAST(source, graphNodes, graphEdges, classHierarchy, variableTypes)
@@ -64,7 +87,7 @@ object CHA {
       propagateUnreachability(graphEdges, unreachableNodes)
     }
 
-    //  Normalizar nodos y arcos
+     // Normalizar nodos y arcos
     normalizeNodes(graphNodes, graphEdges, unreachableNodes)
 
     // Exportar a archivo .dot
@@ -74,6 +97,53 @@ object CHA {
 
     println(s"Los nodos encontrados son : $graphNodes")
   }
+
+  /**
+   * Extrae los métodos de los controladores desde el archivo conf/routes en un proyecto Play Framework.
+   *
+   * @param routesFilePath Ruta del archivo conf/routes
+   * @return Un conjunto con los métodos de los controladores como "UserController.getUsers"
+   */
+def extractEntryPointsFromRoutes(routesFilePath: String): Set[String] = {
+  val entryPoints = scala.collection.mutable.Set[String]()
+//  val paramPattern: Regex = new Regex("\\(([^)]*)\\)") // Expresión regular para capturar parámetros
+  val paramPattern: Regex = new Regex("\\((.*)\\)")
+  try {
+    val source = IOSource.fromFile(routesFilePath)
+    for (line <- source.getLines()) {
+      val parts = line.split("\\s+").filter(_.nonEmpty) // Separar por espacios
+      if (parts.length >= 3) {
+        val controllerMethod = parts(2) // La tercera parte es "controllers.UserController.getUsers"
+        val methodParts = controllerMethod.split("\\.") // Separar en controlador y método
+        if (methodParts.length >= 2) {
+          // Extraer el nombre del método y sus parámetros (si existen)
+          val controller = methodParts.init.mkString(".") // "controllers.UserController"
+          val methodWithParams = methodParts.last // "getUsers" o "show(id: Int)"
+
+          // Eliminar el prefijo "controllers." para normalizar los nombres
+          val normalizedController = controller.stripPrefix("controllers.")
+
+          // Normalizar los parámetros: conservar su tipo si existe
+          val formattedMethod = paramPattern.replaceAllIn(methodWithParams, m => {
+            val params = m.group(1).split(",").map(_.trim).filter(_.nonEmpty).map(param => {
+                val parts = param.split(":").map(_.trim)
+                if (parts.length == 2) s"${parts(0)}: ${parts(1)}"// Asegurar "nombre: tipo"
+                else parts(0).stripSuffix(":") // Elimina ":" finales si no hay tipo
+              }).mkString(", ")
+            if (params.nonEmpty) s"($params)" else "()"
+          })
+
+          entryPoints += s"$normalizedController.$formattedMethod"
+        }
+      }
+    }
+    source.close()
+  } catch {
+    case e: Exception => println(s"Error al leer el archivo conf/routes: ${e.getMessage}")
+  }
+
+  entryPoints
+}
 
   /**
    * Recorre el AST buscando definiciones de clases y traits y construye las variables classHierarchy y methodImplementations.
@@ -239,6 +309,7 @@ object CHA {
           stats.foreach(stat => processNode(stat, caller))
 
         case Defn.Val(_, List(Pat.Var(Term.Name(varName))), typeOpt, init) =>
+          print(s"Entre aca init: $init. varName: $varName")
 
           val inferredType = typeOpt match {
             case Term.Apply(Term.Name("List"), args) => s"List[${inferTypeFromArgs(args)}]"
@@ -265,10 +336,35 @@ object CHA {
       }
     }
     // Cuando encuentra el metodo main en el AST lo procesa como un nodo inicial.
+//    tree.collect {
+//      case defn: Defn.Def if defn.name.value == "main" =>
+//        processNode(defn, "main")
+//    }
+
+    // 🔹 Procesar todas las clases, objetos y traits como entry points del AST
     tree.collect {
-      case defn: Defn.Def if defn.name.value == "main" =>
-        processNode(defn, "main")
+      case cls: Defn.Class =>
+        println(s" Procesando clase: ${cls.name.value}")
+        cls.templ.stats.foreach(stat => processNode(stat, cls.name.value))
+
+      case obj: Defn.Object =>
+        println(s"Procesando objeto: ${obj.name.value}")
+        obj.templ.stats.foreach(stat => processNode(stat, obj.name.value))
+
+      case trt: Defn.Trait =>
+        println(s" Procesando trait: ${trt.name.value}")
+        trt.templ.stats.foreach(stat => processNode(stat, trt.name.value))
     }
+
+    // 🔹 Procesar entry points extraídos del archivo routes
+    graphNodes.foreach { entryPoint =>
+      tree.collect {
+        case defn: Defn.Def if normalizeNodeName(s"${findEnclosingClassOrTrait(defn, tree)}.${defn.name.value}") == entryPoint =>
+          println(s" Entry point encontrado en AST: $entryPoint")
+          processNode(defn, entryPoint)
+      }
+    }
+    println(s" Estado final de variableTypes: $variableTypes")
   }
 
   /**
@@ -330,7 +426,7 @@ object CHA {
       callee.split("\\.") match {
         case Array(contextType, methodName) =>
           val normalizedMethodName = methodName.replaceAll("\\(.*\\)", "") // Elimina paréntesis
-
+          println(s"El metodo normalizado a analizar: $normalizedMethodName, y su contexto: $contextType")
           //  Buscar todas las subclases y superclases
           val relatedClasses = findAllSubtypes(contextType, classHierarchy) ++ findAllSupertypes(contextType, classHierarchy)
           println(s"La clase encontrada es: $relatedClasses")
@@ -345,7 +441,7 @@ object CHA {
             if (!graphEdges.contains((caller, targetMethod))) {
               graphNodes += targetMethod
               newEdges += (caller -> targetMethod)
-              println(s" Agregando método de subtipo o supertipo con RTA: $caller -> $targetMethod")
+              println(s" Agregando método de subtipo o supertipo con CHA: $caller -> $targetMethod")
 
               //  Revisar el cuerpo del método recién agregado
               findCalleesFromGraphNodes(graphNodes, newEdges, sourceTrees, variableTypes)

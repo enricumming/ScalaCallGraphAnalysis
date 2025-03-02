@@ -1,0 +1,96 @@
+digraph CallGraph {
+  node [shape=box];
+  "HomeController.methodB()" [style=filled, fillcolor=red];
+  "HomeController.explore()" [style=filled, fillcolor=white];
+  "Assets.versioned(path=\"/public\"," [style=filled, fillcolor=white];
+  "CustomController.render()" [style=filled, fillcolor=white];
+  "html.tutorial()" [style=filled, fillcolor=white];
+  "views.html()" [style=filled, fillcolor=white];
+  "Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.tutorial())
+  })" [style=filled, fillcolor=white];
+  "HomeController.Ok(\"Este método nunca se llama en ninguna parte\")" [style=filled, fillcolor=red];
+  "HomeController.Ok(views.html.index())" [style=filled, fillcolor=white];
+  "HomeController.Action({
+    Ok(\"Este método nunca se llama en ninguna parte\")
+  })" [style=filled, fillcolor=red];
+  "html.index()" [style=filled, fillcolor=white];
+  "Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.index())
+    Ok(controllerTest.render())
+  })" [style=filled, fillcolor=white];
+  "HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.index())
+    Ok(controllerTest.render())
+  })" [style=filled, fillcolor=white];
+  "HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.explore())
+  })" [style=filled, fillcolor=white];
+  "HomeController.unusedMethod()" [style=filled, fillcolor=red];
+  "BaseController.render()" [style=filled, fillcolor=white];
+  "HomeController.Ok(views.html.tutorial())" [style=filled, fillcolor=white];
+  "HomeController.index()" [style=filled, fillcolor=white];
+  "AnotherController.render()" [style=filled, fillcolor=white];
+  "HomeController.Ok(controllerTest.render())" [style=filled, fillcolor=white];
+  "CustomController.<init>()" [style=filled, fillcolor=white];
+  "HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.tutorial())
+  })" [style=filled, fillcolor=white];
+  "methodA()" [style=filled, fillcolor=red];
+  "Action({
+    Ok(\"Este método nunca se llama en ninguna parte\")
+  })" [style=filled, fillcolor=red];
+  "HomeController.methodA()" [style=filled, fillcolor=red];
+  "HomeController.tutorial()" [style=filled, fillcolor=white];
+  "HomeController.Ok(views.html.explore())" [style=filled, fillcolor=white];
+  "html.explore()" [style=filled, fillcolor=white];
+  "Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.explore())
+  })" [style=filled, fillcolor=white];
+  "methodB()" [style=filled, fillcolor=red];
+  "HomeController.methodA()" -> "HomeController.methodB()";
+  "HomeController.methodA()" -> "methodB()";
+  "HomeController.methodB()" -> "HomeController.methodA()";
+  "HomeController.unusedMethod()" -> "HomeController.Ok(\"Este método nunca se llama en ninguna parte\")";
+  "HomeController.index()" -> "BaseController.render()";
+  "HomeController.index()" -> "Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.index())
+    Ok(controllerTest.render())
+  })";
+  "HomeController.index()" -> "AnotherController.render()";
+  "HomeController.tutorial()" -> "Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.tutorial())
+  })";
+  "HomeController.index()" -> "HomeController.Ok(views.html.index())";
+  "HomeController.tutorial()" -> "HomeController.Ok(views.html.tutorial())";
+  "HomeController.index()" -> "html.index()";
+  "HomeController.explore()" -> "Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.explore())
+  })";
+  "HomeController.unusedMethod()" -> "HomeController.Action({
+    Ok(\"Este método nunca se llama en ninguna parte\")
+  })";
+  "HomeController.tutorial()" -> "views.html()";
+  "HomeController.explore()" -> "HomeController.Ok(views.html.explore())";
+  "HomeController.index()" -> "HomeController.Ok(controllerTest.render())";
+  "HomeController.unusedMethod()" -> "Action({
+    Ok(\"Este método nunca se llama en ninguna parte\")
+  })";
+  "HomeController.index()" -> "HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.index())
+    Ok(controllerTest.render())
+  })";
+  "HomeController.explore()" -> "views.html()";
+  "HomeController.index()" -> "CustomController.render()";
+  "HomeController.index()" -> "views.html()";
+  "HomeController.explore()" -> "HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.explore())
+  })";
+  "HomeController" -> "CustomController.<init>()";
+  "HomeController.methodB()" -> "methodA()";
+  "HomeController.tutorial()" -> "html.tutorial()";
+  "HomeController.explore()" -> "html.explore()";
+  "HomeController.tutorial()" -> "HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.tutorial())
+  })";
+}
