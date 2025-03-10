@@ -96,6 +96,26 @@ object CHA {
     println(s"\nGrafo exportado a '$outputFilePath'")
 
     println(s"Los nodos encontrados son : $graphNodes")
+
+    // Generar .csv para identificar nodos alcanzables e inalcanzables
+    val writer = new PrintWriter(s"$outputFilePath.csv")
+
+    // Escribir encabezado
+    writer.println("Metodo,Estado")
+
+    // Agregar métodos alcanzables
+    graphNodes.foreach { node =>
+      writer.println(s"$node, Alcanzable")
+    }
+
+    // Agregar métodos inalcanzables
+    unreachableNodes.foreach { node =>
+      writer.println(s"$node, Inalcanzable")
+    }
+
+    writer.close()
+    println(s"\n Archivo generado: $outputFilePath.csv")
+
   }
 
   /**
@@ -315,6 +335,9 @@ def extractEntryPointsFromRoutes(routesFilePath: String): Set[String] = {
             case Term.Apply(Term.Name("List"), args) => s"List[${inferTypeFromArgs(args)}]"
             case Term.Apply(Term.Name("Seq"), args)  => s"Seq[${inferTypeFromArgs(args)}]"
             case Some(Type.Name(typeName)) => typeName // Tipo explícito
+            case Some(other) =>
+              println(s"️ Tipo no reconocido en typeOpt: $other")
+              other.toString // Imprime el tipo desconocido y lo usa como string
             case None =>
               // Inferir tipo si es una inicialización con `new`
               init match {
@@ -508,50 +531,114 @@ def extractEntryPointsFromRoutes(routesFilePath: String): Set[String] = {
    * @param variableTypes: Mapeo que permite conocer el tipo de las variables inicializadas en el codigo fuente
    */
 
-def findCalleesFromGraphNodes(
-                               graphNodes: scala.collection.mutable.Set[String],
-                               graphEdges: scala.collection.mutable.Set[(String, String)],
-                               sourceTrees: List[Tree], // Recorre todos los ASTs
-                               variableTypes: Map[String, String],
-                             ): Unit = {
-  val pendingNodes = scala.collection.mutable.Queue(graphNodes.toSeq: _*)
-  println(s"Los nodos pendientes son: $pendingNodes")
-  while (pendingNodes.nonEmpty) {
-    val currentNode = pendingNodes.dequeue()
-    println(s"Procesando nodo: $currentNode")
+//def findCalleesFromGraphNodes(
+//                               graphNodes: scala.collection.mutable.Set[String],
+//                               graphEdges: scala.collection.mutable.Set[(String, String)],
+//                               sourceTrees: List[Tree], // Recorre todos los ASTs
+//                               variableTypes: Map[String, String],
+//                             ): Unit = {
+//  val pendingNodes = scala.collection.mutable.Queue(graphNodes.toSeq: _*)
+//  println(s"Los nodos pendientes son: $pendingNodes")
+//  while (pendingNodes.nonEmpty) {
+//    val currentNode = pendingNodes.dequeue()
+//    println(s"Procesando nodo: $currentNode")
+//
+//    // Buscar definición del nodo en el AST
+//    sourceTrees.foreach { tree =>
+//    tree.collect {
+//      case defn: Defn.Def =>
+//        val enclosingClassOrTrait = findEnclosingClassOrTrait(defn, tree)
+//        val paramTypes = defn.paramss.flatten.map(_.decltpe.map(_.syntax).getOrElse("_")).mkString(", ")
+//        val expectedNode = buildNodeName(enclosingClassOrTrait, defn.name.value, paramTypes)
+//
+//        // Modificar el nodo actual para deducir tipos
+//        val currentNodeModified = modifyNodeWithParameterTypes(currentNode, variableTypes)
+//        println(s"Comparando nodo: $currentNodeModified con esperado: $expectedNode")
+//
+//        if (currentNodeModified == expectedNode) {
+//          println(s"Revisando cuerpo de $currentNode para nuevos métodos.")
+//
+//          // **Agregar parámetros al mapeo variableTypes**
+//          defn.paramss.flatten.foreach { param =>
+//            (param.name, param.decltpe) match {
+//              case (name: Name, Some(paramType)) =>
+//                variableTypes(name.value) = paramType.syntax
+//                println(s"Tipo variable inferido: ${name.value} -> ${paramType.syntax}")
+//              case _ =>
+//            }
+//          }
+//          // Recorrer el cuerpo del método y buscar métodos llamados
+//          processMethodBody(defn.body, currentNode, enclosingClassOrTrait, graphNodes, graphEdges, pendingNodes, variableTypes)
+//        }
+//    }
+//    }
+//  }
+//  println(s"Análisis completo. Nodos: ${graphNodes.mkString(", ")}")
+//}
 
-    // Buscar definición del nodo en el AST
-    sourceTrees.foreach { tree =>
-    tree.collect {
-      case defn: Defn.Def =>
-        val enclosingClassOrTrait = findEnclosingClassOrTrait(defn, tree)
-        val paramTypes = defn.paramss.flatten.map(_.decltpe.map(_.syntax).getOrElse("_")).mkString(", ")
-        val expectedNode = buildNodeName(enclosingClassOrTrait, defn.name.value, paramTypes)
+  def findCalleesFromGraphNodes(
+                                 graphNodes: Set[String],
+                                 graphEdges: Set[(String, String)],
+                                 sourceTrees: List[Tree],
+                                 variableTypes: Map[String, String]
+                               ): Unit = {
 
-        // Modificar el nodo actual para deducir tipos
-        val currentNodeModified = modifyNodeWithParameterTypes(currentNode, variableTypes)
-        println(s"Comparando nodo: $currentNodeModified con esperado: $expectedNode")
+    val pendingNodes = Queue(graphNodes.toSeq: _*)
+    println(s"Los nodos pendientes son: $pendingNodes")
 
-        if (currentNodeModified == expectedNode) {
-          println(s"Revisando cuerpo de $currentNode para nuevos métodos.")
+    // **Paso 1: Construir un índice de métodos para búsqueda rápida**
+    val methodIndex: Map[String, Defn.Def] = Map(
+      sourceTrees.flatMap { tree =>
+        tree.collect {
+          case defn: Defn.Def =>
+            val enclosingClassOrTrait = findEnclosingClassOrTrait(defn, tree)
+            val paramTypes = defn.paramss.flatten.flatMap(_.decltpe.map(_.syntax)).mkString(", ")
+            val methodName = buildNodeName(enclosingClassOrTrait, defn.name.value, paramTypes)
+            methodName -> defn
+        }
+      }: _*
+    )
+
+    println(s"Índice de métodos construido: ${methodIndex.keys.mkString(", ")}")
+
+    // **Paso 2: Procesar nodos pendientes**
+    while (pendingNodes.nonEmpty) {
+      val currentNode = pendingNodes.dequeue()
+      println(s"Procesando nodo: $currentNode")
+
+      // **Buscar el nodo directamente en el índice**
+      val currentNodeModified = modifyNodeWithParameterTypes(currentNode, variableTypes)
+      methodIndex.get(currentNodeModified) match {
+        case Some(defn) =>
+          println(s"Encontrado en índice: Revisando cuerpo de $currentNode para nuevos métodos.")
 
           // **Agregar parámetros al mapeo variableTypes**
           defn.paramss.flatten.foreach { param =>
-            (param.name, param.decltpe) match {
-              case (name: Name, Some(paramType)) =>
-                variableTypes(name.value) = paramType.syntax
-                println(s"Tipo variable inferido: ${name.value} -> ${paramType.syntax}")
-              case _ =>
+            param.decltpe match {
+              case Some(paramType) =>
+                variableTypes(param.name.value) = paramType.syntax
+                println(s"Tipo variable inferido: ${param.name.value} -> ${paramType.syntax}")
+              case None =>
             }
           }
-          // Recorrer el cuerpo del método y buscar métodos llamados
-          processMethodBody(defn.body, currentNode, enclosingClassOrTrait, graphNodes, graphEdges, pendingNodes, variableTypes)
-        }
+
+          // **Procesar el cuerpo del método**
+          processMethodBody(
+            defn.body,
+            currentNode,
+            findEnclosingClassOrTrait(defn, sourceTrees.head),
+            graphNodes, graphEdges, pendingNodes, variableTypes
+          )
+
+        case None =>
+          println(s"No se encontró definición de $currentNode en el índice")
+      }
     }
-    }
+
+    println(s"Análisis completo. Nodos: ${graphNodes.mkString(", ")}")
   }
-  println(s"Análisis completo. Nodos: ${graphNodes.mkString(", ")}")
-}
+
+
 
   /**
    *

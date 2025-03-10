@@ -1,0 +1,54 @@
+Metodo,Estado
+html.index(), Alcanzable
+Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.index())
+    Ok(controllerTest.render())
+  }), Alcanzable
+HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.index())
+    Ok(controllerTest.render())
+  }), Alcanzable
+HomeController.explore(), Alcanzable
+HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.explore())
+  }), Alcanzable
+Assets.versioned(path="/public",, Alcanzable
+BaseController.render(), Alcanzable
+HomeController.Ok(views.html.tutorial()), Alcanzable
+HomeController.index(), Alcanzable
+AnotherController.render(), Alcanzable
+HomeController.Ok(controllerTest.render()), Alcanzable
+CustomController.render(), Alcanzable
+CustomController.<init>(), Alcanzable
+html.tutorial(), Alcanzable
+views.html(), Alcanzable
+Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.tutorial())
+  }), Alcanzable
+HomeController.Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.tutorial())
+  }), Alcanzable
+methodA(), Alcanzable
+Action({
+    Ok("Este método nunca se llama en ninguna parte")
+  }), Alcanzable
+HomeController.tutorial(), Alcanzable
+HomeController.Ok(views.html.index()), Alcanzable
+HomeController.Ok(views.html.explore()), Alcanzable
+html.explore(), Alcanzable
+Action({ implicit request: Request[AnyContent] =>
+    Ok(views.html.explore())
+  }), Alcanzable
+methodB(), Alcanzable
+HomeController.methodB(), Inalcanzable
+HomeController.Ok("Este método nunca se llama en ninguna parte"), Inalcanzable
+methodA(), Inalcanzable
+HomeController.methodA(), Inalcanzable
+Action({
+    Ok("Este método nunca se llama en ninguna parte")
+  }), Inalcanzable
+HomeController.unusedMethod(), Inalcanzable
+HomeController.Action({
+    Ok("Este método nunca se llama en ninguna parte")
+  }), Inalcanzable
+methodB(), Inalcanzable
